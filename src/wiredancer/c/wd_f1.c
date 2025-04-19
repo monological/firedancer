@@ -32,7 +32,14 @@ uint32_t            _wd_next_slot           (wd_wksp_t* wd, uint32_t slot);
 int wd_init_pci(wd_wksp_t* wd, uint64_t slots)
 {
     wd->pci_slots = slots;
-    wd->stream_buf = mmap(0, 32, PROT_READ|PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
+
+    /* staging buffer must be 32‑byte aligned for AVX stream stores         */
+    void *tmp;
+    if (posix_memalign(&tmp, 32u, 32u)) {
+        perror("posix_memalign");
+        return -1;
+    }
+    wd->stream_buf = (uint32_t *)tmp;
 
     fpga_mgmt_state.initialized = true;
 
