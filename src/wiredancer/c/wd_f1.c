@@ -297,7 +297,9 @@ uint64_t _wd_get_phys(void* p)
         }
         nread += (size_t)ret;
     }
-    pfn &= (1UL << 55) - 1;
+    /* bit 63 == “present” on 5.x kernels */
+    if (!(pfn & (1ULL<<63))) { close(pagemap_fd); return 0; }
+    pfn &= (1ULL<<55)-1;
     pfn = (pfn * (long unsigned int)PAGE_SIZE) + (vaddr % (long unsigned int)PAGE_SIZE);
 
     close(pagemap_fd);
