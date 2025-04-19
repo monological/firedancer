@@ -65,6 +65,7 @@ int wd_init_pci(wd_wksp_t* wd, uint64_t slots)
         }
 
         fpga_pci_get_address(pci->bar4, 0, 1024*1024, (void**)&pci->bar4_addr);
+        assert(((uintptr_t)pci->bar4_addr & 31u)==0 && "BAR4 not 32‑B aligned");
 
         for (uint32_t si = 0; si < WD_N_PCI_STREAMS; si ++)
         {
@@ -80,7 +81,15 @@ int wd_init_pci(wd_wksp_t* wd, uint64_t slots)
 
 int wd_free_pci (wd_wksp_t* wd)
 {
-    (void)wd;
+    for (uint32_t slot = 0; slot < WD_N_PCI_SLOTS; ++slot) {
+        if (wd->pci[slot].bar0 != PCI_BAR_HANDLE_INIT)
+            fpga_pci_detach(wd->pci[slot].bar0);
+        if (wd->pci[slot].bar4 != PCI_BAR_HANDLE_INIT)
+            fpga_pci_detach(wd->pci[slot].bar4);
+    }
+
+    free(wd->stream_buf);
+
     return 0;
 }
 
