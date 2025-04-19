@@ -133,7 +133,8 @@ void _wd_write_256(wd_pci_t* pci, uint64_t off, void const* buf)
     } else
     {
         __m256i v;
-        v = _mm256_load_si256((__m256i*)data);
+        assert(((uintptr_t)data & 31u)==0 && "unaligned _wd_write_256()");
+        v = _mm256_load_si256((__m256i const*)data);
         _mm256_stream_si256((__m256i*)(addr), v);
     }
 }
