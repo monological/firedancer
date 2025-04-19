@@ -383,7 +383,11 @@ wd_ed25519_verify_req( wd_wksp_t *   wd,
         }
         // timeout
         if (i == WD_TRY_LIMIT)
+        {
+            struct timespec ts = { .tv_sec = 0, .tv_nsec = 100000 }; /* 100 µs */
+            nanosleep(&ts, NULL);
             return -1;
+        }   
     }
 
     uint64_t dma_addr = fd_mcache_line_idx(m_seq, wd->sv.req_depth) << 5;
