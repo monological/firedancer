@@ -8,6 +8,7 @@
 #include "../../ballet/txn/fd_txn.h"
 #include <stdio.h>
 #include <errno.h>
+#include <unistd.h>
 #include "fd_frank.h"
 
 
@@ -250,6 +251,8 @@ fd_frank_replay_loop( fd_cnc_t *       cnc,
   long now  = then;
 
   for(;;) {
+
+    sleep(1);
 
     /* Do housekeeping at a low rate in the background */
     if( FD_UNLIKELY( (now-then)>=0L ) ) {
