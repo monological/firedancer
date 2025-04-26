@@ -12,6 +12,32 @@ inline void         _wd_stream_256          (wd_wksp_t* wd, uint32_t slot, void 
 void                _wd_stream_flush        (wd_wksp_t* wd, uint32_t slot);
 uint32_t            _wd_next_slot           (wd_wksp_t* wd, uint32_t slot);
 
+/* ────────────────────────────────────────────────────────────── */
+/* Debug helper: print DMA-FIFO and pipe-chain levels for every
+   active slot in a wd_wksp_t.
+
+   Call from any C file that has a pointer to 'wd'.               */
+
+void
+wd_dbg_print_fill( wd_wksp_t *wd, uint32_t src_id /* usually 0 */ )
+{
+    for( uint32_t slot = 0; slot < WD_N_PCI_SLOTS; slot++ ) {
+        if( !(wd->pci_slots & (1UL << slot)) )
+            continue;                                   /* slot unused */
+
+        uint32_t fill = _wd_read_32( &wd->pci[slot],
+                                     (0x21u + src_id) << 2 );
+
+        uint32_t pcie_buf     =  fill        & 0xFFF;   /* bits [11:0]  */
+        uint32_t chain_pending= (fill>>12) & 0x3FF;     /* bits [21:12] */
+        uint32_t dma_fill     = (fill>>22) & 0x3FF;     /* bits [31:22] */
+
+        fprintf(stderr,
+            "slot%u  PCIE_buf=%3u  chain_pending=%3u  DMA_fill=%3u\n",
+            slot, pcie_buf, chain_pending, dma_fill );
+    }
+}
+
 // PPPPPPPPPPPPPPPPP           CCCCCCCCCCCCCIIIIIIIIII
 // P::::::::::::::::P       CCC::::::::::::CI::::::::I
 // P::::::PPPPPP:::::P    CC:::::::::::::::CI::::::::I
@@ -353,8 +379,26 @@ wd_ed25519_verify_init_req( wd_wksp_t *        wd,
         // send fails back
         _wd_write_32(&wd->pci[slot], 0x11<<2, send_fails);
 
-        _wd_set_vdip_64(wd, slot, 0, dma_phys);
-        _wd_set_vdip_64(wd, slot, 1, ((wd->sv.req_depth-1) << 5) | 0x1f);
+        //_wd_set_vdip_64(wd, slot, 0, dma_phys);
+        //_wd_set_vdip_64(wd, slot, 1, ((wd->sv.req_depth-1) << 5) | 0x1f);
+
+        uint64_t base  = dma_phys;
+        uint64_t limit = dma_phys + ((wd->sv.req_depth-1)<<5) + 31;
+
+        _wd_write_32( &wd->pci[slot], (0x30+0)<<2, (uint32_t)( base       & 0xFFFFFFFFU ) );
+        _wd_write_32( &wd->pci[slot], (0x30+1)<<2, (uint32_t)((base>>32) & 0xFFFFFFFFU ) );
+        _wd_write_32( &wd->pci[slot], (0x32+0)<<2, (uint32_t)( limit      & 0xFFFFFFFFU ) );
+        _wd_write_32( &wd->pci[slot], (0x32+1)<<2, (uint32_t)((limit>>32)& 0xFFFFFFFFU ) );
+
+        if( slot==0 ) {                         /* print once is enough */
+            uint32_t lo      = _wd_read_32( &wd->pci[slot], (0x30+0)<<2 );
+            uint32_t hi      = _wd_read_32( &wd->pci[slot], (0x30+1)<<2 );
+            uint32_t lim_lo  = _wd_read_32( &wd->pci[slot], (0x32+0)<<2 );
+            uint32_t lim_hi  = _wd_read_32( &wd->pci[slot], (0x32+1)<<2 );
+
+            FD_LOG_NOTICE(( "slot%u  DMA_base=%08x_%08x  limit=%08x_%08x",
+                            slot, hi, lo, lim_hi, lim_lo ));
+        }
     }
 }
 

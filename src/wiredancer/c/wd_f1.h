@@ -60,6 +60,8 @@ typedef struct {
     wd_ed25519_verify_t sv;
 } wd_wksp_t;
 
+void wd_dbg_print_fill( wd_wksp_t *wd, uint32_t src_id );
+
 int                     wd_init_pci     (wd_wksp_t* wd, uint64_t slots);
 int                     wd_free_pci     (wd_wksp_t* wd);
 
@@ -70,6 +72,7 @@ uint64_t                wd_rd_ts        (wd_wksp_t* wd, uint32_t slot);
 
 uint64_t                wd_get_phys     (void* p);
 void                    wd_zprintf      (const char* format, ...);
+uint32_t _wd_read_32(wd_pci_t* pci, uint32_t addr);
 
 /* wd_ed25519_verify_init_req initializes the internal state
    of the request path. */

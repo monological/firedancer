@@ -1,6 +1,46 @@
 #include "fd_frank.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../wiredancer/c/wd_f1.h"
+#include <pthread.h>
+#include <sched.h>
+#include <stdatomic.h>
+
+/* ───────────────── PCIM reply consumer ────────────────────────────── */
+typedef struct {
+    uint64_t *ring;   /* virtual address of mcache ring              */
+    ulong     depth;  /* number of 32-byte lines (power-of-two)      */
+} pcim_ctx_t;
+
+static void *
+pcim_consumer( void *arg ) {
+    pcim_ctx_t *ctx = (pcim_ctx_t *)arg;
+    uint64_t    mask = ctx->depth - 1;
+
+    /* — Stage 1: hunt for first non-empty line — */
+    for (uint64_t idx = 0;; idx = (idx + 1) & mask) {
+        uint64_t *ln = ctx->ring + idx * 4;               /* 4×u64 line  */
+        atomic_thread_fence(memory_order_acquire);
+        if (ln[1] == ~0ULL) { sched_yield(); continue; }  /* still empty  */
+
+        /* got a real reply; lock on to its sequence */
+        uint64_t seq = ln[1];
+
+        /* Stage 2: steady draining from here on */
+        for (;;) {
+            ln = ctx->ring + (seq & mask) * 4;
+            atomic_thread_fence(memory_order_acquire);
+            if (ln[1] != seq) { sched_yield(); continue; }
+
+            if ((seq & 0xFFF) == 0)
+                FD_LOG_NOTICE(( "PCIM seq %lu OK", seq ));
+
+            ln[1] = ~0ULL;   /* mark slot free */
+            seq++;
+        }
+    }
+    /* never returns */
+    return NULL;
+}
 
 #if FD_HAS_FRANK
 
@@ -219,6 +259,30 @@ fd_frank_verify_task( int     argc,
   if( !!wd_slots ) {
     FD_TEST( !wd_init_pci( &wd, wd_slots ) );
     wd_ed25519_verify_init_req( &wd, 1, depth, mcache );
+
+    {
+        uint32_t const SRC  = 0;
+        int      slot = 0;                 /* you only use slot-0 for requests */
+
+        uint32_t lo      = _wd_read_32( &wd.pci[slot], (0x30+SRC)   << 2 );
+        uint32_t hi      = _wd_read_32( &wd.pci[slot], (0x30+SRC+1) << 2 );
+        uint32_t lim_lo  = _wd_read_32( &wd.pci[slot], (0x31+SRC)   << 2 );
+        uint32_t lim_hi  = _wd_read_32( &wd.pci[slot], (0x31+SRC+1) << 2 );
+
+        FD_LOG_NOTICE(( "slot%u  DMA_base=%08x_%08x  limit=%08x_%08x",
+                        slot, hi, lo, lim_hi, lim_lo ));
+    }
+
+    memset( mcache, 0xFF, depth * 32 );   /* each line is 32 bytes */
+    /* drain PCIM reply ring in a separate thread */
+    pcim_ctx_t *ctx = malloc( sizeof(pcim_ctx_t) );
+    ctx->ring  = (uint64_t *)mcache;   /* same pointer we gave the FPGA */
+    ctx->depth = depth;
+
+    pthread_t pcim_thr;
+    pthread_create( &pcim_thr, NULL, pcim_consumer, ctx );
+    pthread_detach ( pcim_thr );       /* no join needed */
+
   }
 
   /* Start verifying */
@@ -337,6 +401,13 @@ fd_frank_verify_task( int     argc,
 #endif
     now = fd_tickcount();
 
+    /* ─── print FPGA fill-level stats every 4096 loop iterations ─── */
+    static ulong dbg_ctr = 0UL;
+    if( ( ++dbg_ctr & 0xFFFUL ) == 0UL && !!wd_slots )
+        wd_dbg_print_fill( &wd, 0 );   /* src-id 0 = first stream   */
+    /* ────────────────────────────────────────────────────────────── */
+
+
 #if DETAILED_LOGGING
     FD_LOG_INFO(( "verifyin and verify: %s obtained vin_seq_found=%lu", verify_name, vin_seq_found ));
 #endif
@@ -422,6 +493,23 @@ fd_frank_verify_task( int     argc,
 
     /* wiredancer */
     if( !!wd_slots ){
+
+        static int once = 0;
+        if( !once ) {
+            uint32_t const SRC = 0;              /* stream-id you’re using         */
+            int      slot = 0;                   /* FPGA slot number               */
+
+            uint32_t csr22 = _wd_read_32( &wd.pci[ slot ], (0x22+SRC)<<2 ); /* error flags */
+            uint32_t csr23 = _wd_read_32( &wd.pci[ slot ], (0x23+SRC)<<2 ); /* DMA wptr    */
+            uint32_t csr24 = _wd_read_32( &wd.pci[ slot ], (0x24+SRC)<<2 ); /* DMA rptr    */
+
+            FD_LOG_NOTICE(( "slot%u  csr22(err)=%08x  dma_wptr=%08x  dma_rptr=%08x",
+                            slot, csr22, csr23, csr24 ));
+            once = 1;
+        }
+
+      wd_dbg_print_fill( &wd, 0 );
+
       ulong ctl = fd_frag_meta_ctl( 0, 1 /*ctl_som*/, 1 /*ctl_eom*/, 0 /*ctl_err*/ );
       /* Block until the request is sent (or error on timeout) */
       FD_TEST( !wd_ed25519_verify_req( &wd, /* wiredancer context */
