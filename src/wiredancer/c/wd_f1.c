@@ -365,6 +365,24 @@ wd_ed25519_verify_init_req( wd_wksp_t *        wd,
         if (!(wd->pci_slots & (1UL << slot)))
             continue;
 
+        /* ------------------------------------------------------------------ */
+        /* Wait until the CL user-clock is running (F2 drops AXI-Lite writes  */
+        /* from the APP PF before this).  We poll up to 100 ms; if the bit    */
+        /* never rises we emit a warning and continue anyway.                 */
+        /* ------------------------------------------------------------------ */
+        uint32_t sh_cl_status = 0;
+        long     t0           = fd_log_wallclock();   /* ns since boot        */
+        while( !(sh_cl_status & 0x1u) ) {             /* bit-0 == user_clk_ok */
+          sh_cl_status = _wd_read_32( &wd->pci[slot], 0x5Cu << 2 ); /* APP PF read */
+
+          if( FD_UNLIKELY( (fd_log_wallclock() - t0) > 100000000L ) ) { /* 100 ms */
+            FD_LOG_WARNING(( "slot%u: CL_STATUS bit never rose; "
+                             "continuing anyway – F2 shell probably maps it only "
+                             "on PF0", slot ));
+            break;
+          }
+        }
+
         // setup threshold levels for pipe-chain
         for (uint32_t i = 0; i < 5; i ++)
         {

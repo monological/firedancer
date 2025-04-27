@@ -260,18 +260,17 @@ fd_frank_verify_task( int     argc,
     FD_TEST( !wd_init_pci( &wd, wd_slots ) );
     wd_ed25519_verify_init_req( &wd, 1, depth, mcache );
 
-    {
-        uint32_t const SRC  = 0;
-        int      slot = 0;                 /* you only use slot-0 for requests */
+    int slot = 0;                               /* FPGA slot we use */
 
-        uint32_t lo      = _wd_read_32( &wd.pci[slot], (0x30+SRC)   << 2 );
-        uint32_t hi      = _wd_read_32( &wd.pci[slot], (0x30+SRC+1) << 2 );
-        uint32_t lim_lo  = _wd_read_32( &wd.pci[slot], (0x31+SRC)   << 2 );
-        uint32_t lim_hi  = _wd_read_32( &wd.pci[slot], (0x31+SRC+1) << 2 );
+    uint32_t base_lo  = _wd_read_32( &wd.pci[slot], 0x30u << 2 );
+    uint32_t base_hi  = _wd_read_32( &wd.pci[slot], 0x31u << 2 );
+    uint32_t limit_lo = _wd_read_32( &wd.pci[slot], 0x32u << 2 );
+    uint32_t limit_hi = _wd_read_32( &wd.pci[slot], 0x33u << 2 );
 
-        FD_LOG_NOTICE(( "slot%u  DMA_base=%08x_%08x  limit=%08x_%08x",
-                        slot, hi, lo, lim_hi, lim_lo ));
-    }
+    FD_LOG_NOTICE(( "[DMA_RANGE] slot%u  base=%08x_%08x  limit=%08x_%08x",
+                    slot,
+                    base_hi,  base_lo,
+                    limit_hi, limit_lo ));
 
     memset( mcache, 0xFF, depth * 32 );   /* each line is 32 bytes */
     /* drain PCIM reply ring in a separate thread */
