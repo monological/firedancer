@@ -240,7 +240,7 @@ int _wd_set_vdip_64(wd_wksp_t* wd, uint32_t slot, uint32_t vi, uint64_t v)
     {
         uint32_t vdip = 0xf;
         vdip |= ((vi * 8) + i) << 4;
-        vdip |= (v & 0xff) << 8;
+        vdip |= ((uint32_t)(v & 0xffU)) << 8;
         v >>= 8;
         if (fpga_mgmt_set_vDIP((int)slot, (uint16_t)vdip))
         {
