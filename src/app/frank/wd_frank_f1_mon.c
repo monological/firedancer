@@ -382,6 +382,14 @@ void* mon_thread(void* arg)
         for (uint32_t si = 0; si < WD_N_PCI_SLOTS; si ++)
             wd_snp_cntrs(&state->wd, si);
 
+        for(uint32_t i=0;i<32; i++)
+        {
+            uint64_t wd_cnt = wd_rd_cntr(&state->wd, 0, i);
+            printf("wd_snp_cntr: %08x i: %li\n", wd_cnt, i);
+        }
+
+        continue;
+
         // read counters
         for (int i = 0;; i ++)
         {
