@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <assert.h>
+#include <sys/ioctl.h>
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
@@ -60,16 +61,19 @@ typedef struct {
     wd_ed25519_verify_t sv;
 } wd_wksp_t;
 
-int                     wd_init_pci     (wd_wksp_t* wd, uint64_t slots);
-int                     wd_free_pci     (wd_wksp_t* wd);
+int                     wd_init_pci      (wd_wksp_t* wd, uint64_t slots);
+int                     wd_free_pci      (wd_wksp_t* wd);
 
-void                    wd_rst_cntrs    (wd_wksp_t* wd, uint32_t slot);
-void                    wd_snp_cntrs    (wd_wksp_t* wd, uint32_t slot);
-uint32_t                wd_rd_cntr      (wd_wksp_t* wd, uint32_t slot, uint32_t ci);
-uint64_t                wd_rd_ts        (wd_wksp_t* wd, uint32_t slot);
+void *                  wd_dma_base_ptr  (void);
+uint64_t                wd_dma_base_iova (void);
 
-uint64_t                wd_get_phys     (void* p);
-void                    wd_zprintf      (const char* format, ...);
+void                    wd_rst_cntrs     (wd_wksp_t* wd, uint32_t slot);
+void                    wd_snp_cntrs     (wd_wksp_t* wd, uint32_t slot);
+uint32_t                wd_rd_cntr       (wd_wksp_t* wd, uint32_t slot, uint32_t ci);
+uint64_t                wd_rd_ts         (wd_wksp_t* wd, uint32_t slot);
+
+uint64_t                wd_get_phys      (void* p);
+void                    wd_zprintf       (const char* format, ...);
 
 /* wd_ed25519_verify_init_req initializes the internal state
    of the request path. */

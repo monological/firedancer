@@ -269,42 +269,51 @@ int _wd_set_vdip_64(wd_wksp_t* wd, uint32_t slot, uint32_t vi, uint64_t v)
 // D::::::::::::DDD     M::::::M               M::::::M A:::::A                 A:::::A 
 // DDDDDDDDDDDDD        MMMMMMMM               MMMMMMMMAAAAAAA                   AAAAAAA
 
-uint64_t _wd_get_phys(void* p)
-{
-    uint64_t PAGE_SIZE = (uint64_t)sysconf(_SC_PAGESIZE);
-    int pagemap_fd;
-    uint64_t vaddr;
-    uintptr_t vpn;
-    uint64_t pfn;
+static int      fd        = -1;
+static void    *base      = MAP_FAILED;
+static uint64_t base_iova = 0;
+static size_t   map_sz    = 1 << 22;   /* WD_SIZE */
 
-    pagemap_fd = open("/proc/self/pagemap", O_RDONLY);
-    if (pagemap_fd < 0)
-    {
-        FD_LOG_ERR (( "cannot open pagemap file: %d ", pagemap_fd ));
+static void
+wd_dma_init(void) {
+    if(base != MAP_FAILED) return;
+
+    fd = open("/dev/wd_dma", O_RDWR | O_CLOEXEC);
+    if(fd < 0) FD_LOG_ERR(("cannot open /dev/wd_dma"));
+
+    if(ioctl(fd, 0, &base_iova))
+        FD_LOG_ERR(("ioctl failed on /dev/wd_dma"));
+
+    base = mmap(NULL, map_sz, PROT_READ | PROT_WRITE,
+                MAP_SHARED, fd, 0);
+    if(base == MAP_FAILED)
+        FD_LOG_ERR(("mmap failed on /dev/wd_dma"));
+}
+
+uint64_t
+_wd_get_phys(void *p) {
+    wd_dma_init();
+
+    uintptr_t off = (uintptr_t)p - (uintptr_t)base;
+    if (off >= map_sz) {
+        FD_LOG_ERR(("pointer %p with offset 0x%zx and base %p "
+            "outside DMA buffer (size 0x%zx bytes)",
+            (void *)p, off, base, map_sz));
         return 0;
     }
+    return base_iova + off;
+}
 
-    vaddr = (uint64_t)p;
-    vpn = vaddr / PAGE_SIZE;
-    for (size_t nread = 0; nread < sizeof(pfn); )
-    {
-        ssize_t ret = pread(pagemap_fd, &pfn, sizeof(pfn) - nread, (off_t)((vpn * sizeof(pfn)) + nread));
-        if (ret <= 0)
-        {
-            FD_LOG_ERR (( "pread error: %lu ", ret ));
-            close(pagemap_fd);
-            return 0;
-        }
-        nread += (size_t)ret;
-    }
-    /* bit 63 == “present” on 5.x kernels */
-    if (!(pfn & (1ULL<<63))) { close(pagemap_fd); return 0; }
-    pfn &= (1ULL<<55)-1;
-    pfn = (pfn * (long unsigned int)PAGE_SIZE) + (vaddr % (long unsigned int)PAGE_SIZE);
+void *
+wd_dma_base_ptr(void) {
+    wd_dma_init();
+    return base;
+}
 
-    close(pagemap_fd);
-
-    return pfn;
+uint64_t
+wd_dma_base_iova(void) {
+    wd_dma_init();
+    return base_iova;
 }
 
 //    SSSSSSSSSSSSSSS VVVVVVVV           VVVVVVVV
