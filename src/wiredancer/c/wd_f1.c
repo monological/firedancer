@@ -295,9 +295,10 @@ _wd_get_phys(void *p) {
     wd_dma_init();
 
     uintptr_t off = (uintptr_t)p - (uintptr_t)base;
-    if(off >= map_sz) {
-        FD_LOG_ERR(("pointer %p outside DMA buffer, size %zx bytes",
-                     (void *)p, map_sz));
+    if (off >= map_sz) {
+        FD_LOG_ERR(("pointer %p with offset 0x%zx and base %p "
+            "outside DMA buffer (size 0x%zx bytes)",
+            (void *)p, off, base, map_sz));
         return 0;
     }
     return base_iova + off;

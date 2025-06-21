@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <assert.h>
+#include <sys/ioctl.h>
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
