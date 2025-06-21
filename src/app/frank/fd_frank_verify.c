@@ -136,11 +136,31 @@ fd_frank_verify_task( int     argc,
   FD_COMPILER_MFENCE();
 
   FD_LOG_INFO(( "joining %s.verify.%s.mcache", cfg_path, verify_name ));
-  fd_frag_meta_t * mcache = fd_mcache_join( fd_wksp_pod_map( verify_pod, "mcache" ) );
-  if( FD_UNLIKELY( !mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-  ulong   depth = fd_mcache_depth( mcache );
-  ulong * sync  = fd_mcache_seq_laddr( mcache );
-  ulong   seq   = fd_mcache_seq_query( sync );
+
+  /* 4 MiB buffer → 131 072 slots (2^17) */
+  ulong depth_cfg = (1U << 22) / sizeof(fd_frag_meta_t);   /* 131 072 */
+
+  /* We need the mcache ring to reside inside the kernel-allocated,
+     * pinned wd_dma buffer so that its addresses are already mapped
+     * in the IOMMU and can be reached safely by the FPGA. */
+  void *ring_mem = wd_dma_base_ptr();
+
+  fd_frag_meta_t *mcache = fd_mcache_join(ring_mem);
+  if (!mcache) {
+      if (!fd_mcache_new(ring_mem, depth_cfg, 0UL, 0UL))
+          FD_LOG_ERR(("fd_mcache_new failed"));
+
+      mcache = fd_mcache_join(ring_mem);
+      if (!mcache)
+          FD_LOG_ERR(("fd_mcache_join failed after new"));
+  }
+
+  FD_LOG_INFO(( "using dma_base_ptr=%p  mcache=%p  limit=0x%zx",
+                ring_mem, mcache, (size_t)(1 << 22) ));
+
+  ulong   depth = fd_mcache_depth(mcache);
+  ulong * sync  = fd_mcache_seq_laddr(mcache);
+  ulong   seq   = fd_mcache_seq_query(sync);
 
   FD_LOG_INFO(( "joining %s.verify.%s.dcache", cfg_path, verify_name ));
   uchar * dcache = fd_dcache_join( fd_wksp_pod_map( verify_pod, "dcache" ) );

@@ -269,13 +269,13 @@ int _wd_set_vdip_64(wd_wksp_t* wd, uint32_t slot, uint32_t vi, uint64_t v)
 // D::::::::::::DDD     M::::::M               M::::::M A:::::A                 A:::::A 
 // DDDDDDDDDDDDD        MMMMMMMM               MMMMMMMMAAAAAAA                   AAAAAAA
 
+static int      fd        = -1;
+static void    *base      = MAP_FAILED;
+static uint64_t base_iova = 0;
+static size_t   map_sz    = 1 << 22;   /* WD_SIZE */
+
 uint64_t _wd_get_phys(void *p)
 {
-    static int      fd        = -1;
-    static void    *base      = MAP_FAILED;
-    static uint64_t base_iova = 0;
-    static size_t   map_sz    = 1 << 22;   /* must match WD_SIZE in the driver */
-
     if (base == MAP_FAILED) {              /* first time only */
         fd = open("/dev/wd_dma", O_RDWR | O_CLOEXEC);
         if (fd < 0) {
@@ -298,16 +298,28 @@ uint64_t _wd_get_phys(void *p)
             fd = -1;
             return 0;
         }
-        /* keep fd open so the module stays loaded */
     }
 
     uintptr_t off = (uintptr_t)p - (uintptr_t)base;
-    if (off >= map_sz) {                   /* sanity-check caller */
+    if (off >= map_sz) {
         FD_LOG_ERR(("pointer outside DMA buffer"));
         return 0;
     }
 
     return base_iova + off;
+}
+
+void *wd_dma_base_ptr(void) {
+    if(base == MAP_FAILED) {
+        (void)_wd_get_phys((void *)0);
+    }
+    return base;
+}
+
+uint64_t wd_dma_base_iova(void) {
+    if(base == MAP_FAILED)
+        (void)_wd_get_phys((void *)0);
+    return base_iova;
 }
 
 //    SSSSSSSSSSSSSSS VVVVVVVV           VVVVVVVV
