@@ -274,51 +274,44 @@ static void    *base      = MAP_FAILED;
 static uint64_t base_iova = 0;
 static size_t   map_sz    = 1 << 22;   /* WD_SIZE */
 
-uint64_t _wd_get_phys(void *p)
-{
-    if (base == MAP_FAILED) {              /* first time only */
-        fd = open("/dev/wd_dma", O_RDWR | O_CLOEXEC);
-        if (fd < 0) {
-            FD_LOG_ERR(("cannot open /dev/wd_dma"));
-            return 0;
-        }
+static void
+wd_dma_init(void) {
+    if(base != MAP_FAILED) return;
 
-        if (ioctl(fd, 0, &base_iova)) {
-            FD_LOG_ERR(("ioctl failed on /dev/wd_dma"));
-            close(fd);
-            fd = -1;
-            return 0;
-        }
+    fd = open("/dev/wd_dma", O_RDWR | O_CLOEXEC);
+    if(fd < 0) FD_LOG_ERR(("cannot open /dev/wd_dma"));
 
-        base = mmap(NULL, map_sz, PROT_READ | PROT_WRITE,
-                    MAP_SHARED, fd, 0);
-        if (base == MAP_FAILED) {
-            FD_LOG_ERR(("mmap failed on /dev/wd_dma"));
-            close(fd);
-            fd = -1;
-            return 0;
-        }
-    }
+    if(ioctl(fd, 0, &base_iova))
+        FD_LOG_ERR(("ioctl failed on /dev/wd_dma"));
+
+    base = mmap(NULL, map_sz, PROT_READ | PROT_WRITE,
+                MAP_SHARED, fd, 0);
+    if(base == MAP_FAILED)
+        FD_LOG_ERR(("mmap failed on /dev/wd_dma"));
+}
+
+uint64_t
+_wd_get_phys(void *p) {
+    wd_dma_init();
 
     uintptr_t off = (uintptr_t)p - (uintptr_t)base;
-    if (off >= map_sz) {
-        FD_LOG_ERR(("pointer outside DMA buffer"));
+    if(off >= map_sz) {
+        FD_LOG_ERR(("pointer %p outside DMA buffer, size %zx bytes",
+                     (void *)p, map_sz));
         return 0;
     }
-
     return base_iova + off;
 }
 
-void *wd_dma_base_ptr(void) {
-    if(base == MAP_FAILED) {
-        (void)_wd_get_phys((void *)0);
-    }
+void *
+wd_dma_base_ptr(void) {
+    wd_dma_init();
     return base;
 }
 
-uint64_t wd_dma_base_iova(void) {
-    if(base == MAP_FAILED)
-        (void)_wd_get_phys((void *)0);
+uint64_t
+wd_dma_base_iova(void) {
+    wd_dma_init();
     return base_iova;
 }
 
