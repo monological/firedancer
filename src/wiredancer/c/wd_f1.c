@@ -269,51 +269,57 @@ int _wd_set_vdip_64(wd_wksp_t* wd, uint32_t slot, uint32_t vi, uint64_t v)
 // D::::::::::::DDD     M::::::M               M::::::M A:::::A                 A:::::A 
 // DDDDDDDDDDDDD        MMMMMMMM               MMMMMMMMAAAAAAA                   AAAAAAA
 
-static int      fd        = -1;
-static void    *base      = MAP_FAILED;
-static uint64_t base_iova = 0;
-static size_t   map_sz    = 1 << 22;   /* WD_SIZE */
+static int      fd       = -1;
+static void    *hp_base  = NULL;        /* user-pinned hugepage base */
+static size_t   hp_len   = 0;           /* bytes (set after pin)     */
+static uint64_t hp_iova  = 0;           /* IOVA of hugepage          */
 
 static void
 wd_dma_init(void) {
-    if(base != MAP_FAILED) return;
+    if(fd != -1) return;                           /* already open */
 
     fd = open("/dev/wd_dma", O_RDWR | O_CLOEXEC);
-    if(fd < 0) FD_LOG_ERR(("cannot open /dev/wd_dma"));
+    if(fd < 0)
+        FD_LOG_ERR(("cannot open /dev/wd_dma"));
+}
 
-    if(ioctl(fd, 0, &base_iova))
-        FD_LOG_ERR(("ioctl failed on /dev/wd_dma"));
+/* ------------------------------------------------------------------ */
+/* pin one user hugepage and return its IOVA                          */
+static uint64_t
+wd_dma_pin_hugepage(void *hp_addr) {
+    wd_dma_init();
 
-    base = mmap(NULL, map_sz, PROT_READ | PROT_WRITE,
-                MAP_SHARED, fd, 0);
-    if(base == MAP_FAILED)
-        FD_LOG_ERR(("mmap failed on /dev/wd_dma"));
+    uint64_t iova = (uint64_t)hp_addr;             /* in: vaddr, out: IOVA */
+    if(ioctl(fd, WD_IOC_MAP_HUGEPAGE, &iova))
+        FD_LOG_ERR(("ioctl WD_IOC_MAP_HUGEPAGE failed"));
+
+    hp_base = hp_addr;
+    hp_len  = 1UL << 21;                           /* assume 2 MiB hugepage */
+    hp_iova = iova;
+
+    return iova;
 }
 
 uint64_t
 _wd_get_phys(void *p) {
-    wd_dma_init();
+    if(!hp_base)
+        FD_LOG_ERR(("hugepage not pinned"));
 
-    uintptr_t off = (uintptr_t)p - (uintptr_t)base;
-    if (off >= map_sz) {
-        FD_LOG_ERR(("pointer %p with offset 0x%zx and base %p "
-            "outside DMA buffer (size 0x%zx bytes)",
-            (void *)p, off, base, map_sz));
-        return 0;
-    }
-    return base_iova + off;
+    uintptr_t off = (uintptr_t)p - (uintptr_t)hp_base;
+    if(off >= hp_len)
+        FD_LOG_ERR(("pointer %p outside pinned hugepage", p));
+
+    return hp_iova + off;
 }
 
 void *
 wd_dma_base_ptr(void) {
-    wd_dma_init();
-    return base;
+    return hp_base;
 }
 
 uint64_t
 wd_dma_base_iova(void) {
-    wd_dma_init();
-    return base_iova;
+    return hp_iova;
 }
 
 //    SSSSSSSSSSSSSSS VVVVVVVV           VVVVVVVV
@@ -339,31 +345,31 @@ wd_ed25519_verify_init_req( wd_wksp_t *        wd,
                             uint64_t           mcache_depth,
                             void*              mcache_addr)
 {
-    wd->sv.req_slot     = _wd_next_slot(wd, 0);
-    wd->sv.req_depth    = mcache_depth;
-    uint64_t dma_phys   = _wd_get_phys(mcache_addr);
+    wd->sv.req_slot  = _wd_next_slot(wd, 0);
+    wd->sv.req_depth = mcache_depth;
 
-    for (uint32_t slot = 0; slot < WD_N_PCI_SLOTS; slot ++)
-    {
+    /* map (pin) the single mcache hugepage and get its IOVA */
+    uint64_t dma_phys = wd_dma_pin_hugepage(mcache_addr);
+
+    for (uint32_t slot = 0; slot < WD_N_PCI_SLOTS; slot++) {
         if (!(wd->pci_slots & (1UL << slot)))
             continue;
 
-        // setup threshold levels for pipe-chain
-        for (uint32_t i = 0; i < 5; i ++)
-        {
+        /* setup threshold levels for pipe-chain */
+        for (uint32_t i = 0; i < 5; i++) {
             _wd_write_32(&wd->pci[slot], 0x10<<2, i);
             _wd_write_32(&wd->pci[slot], 0x13<<2, 0);
             _wd_write_32(&wd->pci[slot], 0x14<<2, (200 << 0) | (200 << 12));
         }
-        // sha_pad thresholds
+        /* sha_pad thresholds */
         _wd_write_32(&wd->pci[slot], 0x10<<2, 0);
         _wd_write_32(&wd->pci[slot], 0x13<<2, 0);
         _wd_write_32(&wd->pci[slot], 0x14<<2, 10 | (10 << 12));
-        // send fails back
+        /* send fails back */
         _wd_write_32(&wd->pci[slot], 0x11<<2, send_fails);
 
         _wd_set_vdip_64(wd, slot, 0, dma_phys);
-        _wd_set_vdip_64(wd, slot, 1, ((wd->sv.req_depth-1) << 5) | 0x1f);
+        _wd_set_vdip_64(wd, slot, 1, ((wd->sv.req_depth - 1) << 5) | 0x1f);
     }
 }
 

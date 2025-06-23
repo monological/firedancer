@@ -28,6 +28,10 @@
 
 #define WD_TRY_LIMIT            1000000
 
+// wd_dma kernel module ioctl commands
+#define WD_IOC_GET_COHERENT 0
+#define WD_IOC_MAP_HUGEPAGE 1
+
 typedef struct {
 
     uint64_t a; // address
