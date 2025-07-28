@@ -32,14 +32,7 @@ uint32_t            _wd_next_slot           (wd_wksp_t* wd, uint32_t slot);
 int wd_init_pci(wd_wksp_t* wd, uint64_t slots)
 {
     wd->pci_slots = slots;
-
-    /* staging buffer must be 32‑byte aligned for AVX stream stores         */
-    void *tmp;
-    if (posix_memalign(&tmp, 32u, 32u)) {
-        perror("posix_memalign");
-        return -1;
-    }
-    wd->stream_buf = (uint32_t *)tmp;
+    wd->stream_buf = mmap(0, 32, PROT_READ|PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
 
     fpga_mgmt_state.initialized = true;
 
@@ -72,7 +65,6 @@ int wd_init_pci(wd_wksp_t* wd, uint64_t slots)
         }
 
         fpga_pci_get_address(pci->bar4, 0, 1024*1024, (void**)&pci->bar4_addr);
-        assert(((uintptr_t)pci->bar4_addr & 31u)==0 && "BAR4 not 32‑B aligned");
 
         for (uint32_t si = 0; si < WD_N_PCI_STREAMS; si ++)
         {
@@ -88,15 +80,7 @@ int wd_init_pci(wd_wksp_t* wd, uint64_t slots)
 
 int wd_free_pci (wd_wksp_t* wd)
 {
-    for (uint32_t slot = 0; slot < WD_N_PCI_SLOTS; ++slot) {
-        if (wd->pci[slot].bar0 != PCI_BAR_HANDLE_INIT)
-            fpga_pci_detach(wd->pci[slot].bar0);
-        if (wd->pci[slot].bar4 != PCI_BAR_HANDLE_INIT)
-            fpga_pci_detach(wd->pci[slot].bar4);
-    }
-
-    free(wd->stream_buf);
-
+    (void)wd;
     return 0;
 }
 
@@ -133,8 +117,7 @@ void _wd_write_256(wd_pci_t* pci, uint64_t off, void const* buf)
     } else
     {
         __m256i v;
-        assert(((uintptr_t)data & 31u)==0 && "unaligned _wd_write_256()");
-        v = _mm256_load_si256((__m256i const*)data);
+        v = _mm256_load_si256((__m256i*)data);
         _mm256_stream_si256((__m256i*)(addr), v);
     }
 }
@@ -240,7 +223,7 @@ int _wd_set_vdip_64(wd_wksp_t* wd, uint32_t slot, uint32_t vi, uint64_t v)
     {
         uint32_t vdip = 0xf;
         vdip |= ((vi * 8) + i) << 4;
-        vdip |= ((uint32_t)(v & 0xffU)) << 8;
+        vdip |= (v & 0xff) << 8;
         v >>= 8;
         if (fpga_mgmt_set_vDIP((int)slot, (uint16_t)vdip))
         {
@@ -297,9 +280,7 @@ uint64_t _wd_get_phys(void* p)
         }
         nread += (size_t)ret;
     }
-    /* bit 63 == “present” on 5.x kernels */
-    if (!(pfn & (1ULL<<63))) { close(pagemap_fd); return 0; }
-    pfn &= (1ULL<<55)-1;
+    pfn &= (1UL << 55) - 1;
     pfn = (pfn * (long unsigned int)PAGE_SIZE) + (vaddr % (long unsigned int)PAGE_SIZE);
 
     close(pagemap_fd);
@@ -402,11 +383,7 @@ wd_ed25519_verify_req( wd_wksp_t *   wd,
         }
         // timeout
         if (i == WD_TRY_LIMIT)
-        {
-            struct timespec ts = { .tv_sec = 0, .tv_nsec = 100000 }; /* 100 µs */
-            nanosleep(&ts, NULL);
             return -1;
-        }   
     }
 
     uint64_t dma_addr = fd_mcache_line_idx(m_seq, wd->sv.req_depth) << 5;

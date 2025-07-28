@@ -7,9 +7,6 @@
 #include <stdarg.h>
 #include <sys/mman.h>
 #include <immintrin.h>
-#include <stdlib.h>
-#include <time.h>
-#include <assert.h>
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
